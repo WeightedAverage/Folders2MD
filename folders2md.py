@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -649,70 +650,59 @@ class FileTreePanel(QTreeWidget):
 # ============================================================
 
 class BlockListDialog(QDialog):
-    """文件夹屏蔽列表管理对话框，支持手动输入路径"""
+    """屏蔽列表管理对话框，自动扫描当前目录子文件夹，点击即可屏蔽"""
 
-    def __init__(self, blocked_folders: list, parent=None) -> None:
+    def __init__(self, current_path: str, blocked_folders: list, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("屏蔽列表管理")
-        self.setMinimumSize(480, 420)
+        self.setWindowTitle("屏蔽文件夹")
+        self.setMinimumSize(460, 500)
+        self.current_path = current_path
         self.blocked_folders = list(blocked_folders)
         self._setup_ui()
         self._apply_styles()
+        self._load_subfolders()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         # 标题
-        title = QLabel("🚫 屏蔽文件夹管理")
+        title = QLabel("🚫 屏蔽文件夹")
         title.setStyleSheet("color: #e0e0e0; font-size: 12pt; font-weight: bold; padding: 0;")
         layout.addWidget(title)
 
+        # 当前路径
+        path_label = QLabel(f"当前目录: {self.current_path}")
+        path_label.setWordWrap(True)
+        path_label.setStyleSheet("color: #888; font-size: 9pt; padding: 0;")
+        layout.addWidget(path_label)
+
         # 说明
-        hint = QLabel("输入要屏蔽的文件夹路径或名称，扫描时将跳过这些目录")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 9pt; padding: 0;")
+        hint = QLabel("勾选要屏蔽的子文件夹，扫描时将跳过这些目录")
+        hint.setStyleSheet("color: #a0a0a0; font-size: 9pt; padding: 0;")
         layout.addWidget(hint)
 
-        # 输入区域：路径输入 + 浏览按钮 + 添加按钮
-        input_layout = QHBoxLayout()
-        self.input_edit = QLineEdit()
-        self.input_edit.setPlaceholderText("输入路径，如: D:\\project\\node_modules 或 node_modules")
-        self.input_edit.returnPressed.connect(self._add_item)
-        self.btn_browse = QPushButton("📁 浏览")
-        self.btn_browse.setCursor(Qt.PointingHandCursor)
-        self.btn_browse.clicked.connect(self._browse_folder)
-        self.btn_add = QPushButton("➕ 添加")
-        self.btn_add.setCursor(Qt.PointingHandCursor)
-        self.btn_add.clicked.connect(self._add_item)
-        input_layout.addWidget(self.input_edit, 1)
-        input_layout.addWidget(self.btn_browse)
-        input_layout.addWidget(self.btn_add)
-        layout.addLayout(input_layout)
+        # 子文件夹列表（带勾选框）
+        self.folder_list = QListWidget()
+        self.folder_list.itemChanged.connect(self._on_item_changed)
+        layout.addWidget(self.folder_list)
 
-        # 列表标签
-        list_label = QLabel(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
-        list_label.setStyleSheet("color: #a0a0a0; font-size: 9pt; padding: 0;")
-        self._list_label = list_label
-        layout.addWidget(list_label)
+        # 已屏蔽数量提示
+        self._count_label = QLabel(f"已屏蔽 {len(self.blocked_folders)} 个文件夹")
+        self._count_label.setStyleSheet("color: #888; font-size: 9pt; padding: 0;")
+        layout.addWidget(self._count_label)
 
-        # 列表
-        self.list_widget = QListWidget()
-        self.list_widget.addItems(self.blocked_folders)
-        self.list_widget.doubleClicked.connect(self._remove_selected)
-        layout.addWidget(self.list_widget)
-
-        # 操作按钮
+        # 底部按钮
         btn_layout = QHBoxLayout()
-        self.btn_remove = QPushButton("🗑️ 移除选中")
-        self.btn_remove.setCursor(Qt.PointingHandCursor)
-        self.btn_remove.clicked.connect(self._remove_selected)
-        self.btn_clear = QPushButton("🧹 清空全部")
-        self.btn_clear.setCursor(Qt.PointingHandCursor)
-        self.btn_clear.clicked.connect(self._clear_all)
-        btn_layout.addWidget(self.btn_remove)
-        btn_layout.addWidget(self.btn_clear)
+        self.btn_unselect_all = QPushButton("取消全选")
+        self.btn_unselect_all.setCursor(Qt.PointingHandCursor)
+        self.btn_unselect_all.clicked.connect(self._unselect_all)
+        self.btn_select_all = QPushButton("全选")
+        self.btn_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_select_all.clicked.connect(self._select_all)
+        btn_layout.addWidget(self.btn_unselect_all)
+        btn_layout.addWidget(self.btn_select_all)
         btn_layout.addStretch()
         self.btn_ok = QPushButton("✅ 确定")
         self.btn_ok.setCursor(Qt.PointingHandCursor)
@@ -729,50 +719,102 @@ class BlockListDialog(QDialog):
             QDialog { background-color: #2b2b2b; }
             QWidget { background-color: #2b2b2b; color: #dcdcdc; font-family: "Microsoft YaHei", sans-serif; }
             QListWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 6px; font-size: 10pt; }
-            QListWidget::item { padding: 4px 6px; border-radius: 3px; }
+            QListWidget::item { padding: 6px 8px; border-radius: 3px; }
             QListWidget::item:selected { background-color: #264f78; }
             QListWidget::item:hover { background-color: #2a3f5c; }
-            QLineEdit { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font-size: 10pt; }
-            QLineEdit:focus { border: 1px solid #0078d4; }
+            QListWidget::indicator { width: 16px; height: 16px; }
+            QListWidget::indicator:unchecked { background-color: #3c3c3c; border: 1px solid #666; border-radius: 3px; }
+            QListWidget::indicator:checked { background-color: #0078d4; border: 1px solid #0078d4; border-radius: 3px; }
             QPushButton { background-color: #3c3c3c; color: #e0e0e0; border: 1px solid #555; border-radius: 6px; padding: 8px 16px; font-size: 10pt; }
             QPushButton:hover { background-color: #505050; border: 1px solid #666; }
         """)
 
-    def _browse_folder(self) -> None:
-        """浏览选择文件夹路径"""
-        folder = QFileDialog.getExistingDirectory(self, "选择要屏蔽的文件夹")
-        if folder:
-            self.input_edit.setText(folder)
+    def _load_subfolders(self) -> None:
+        """扫描当前目录下的子文件夹并填充列表"""
+        self.folder_list.blockSignals(True)
+        self.folder_list.clear()
 
-    def _add_item(self) -> None:
-        text = self.input_edit.text().strip()
-        if not text:
+        if not self.current_path or not os.path.isdir(self.current_path):
+            item = QListWidgetItem("⚠ 未选择文件夹，请先选择一个文件夹")
+            item.setFlags(Qt.ItemIsEnabled)
+            self.folder_list.addItem(item)
+            self.folder_list.blockSignals(False)
             return
-        if text in self.blocked_folders:
-            QMessageBox.information(self, "提示", "该路径已在屏蔽列表中。")
-            return
-        self.blocked_folders.append(text)
-        self.list_widget.addItem(text)
-        self.input_edit.clear()
-        self._list_label.setText(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
 
-    def _remove_selected(self) -> None:
-        row = self.list_widget.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "提示", "请先选择要移除的项。\n也可双击列表项快速移除。")
+        try:
+            entries = sorted(os.listdir(self.current_path))
+        except (PermissionError, OSError):
+            item = QListWidgetItem("⚠ 无法读取该目录")
+            item.setFlags(Qt.ItemIsEnabled)
+            self.folder_list.addItem(item)
+            self.folder_list.blockSignals(False)
             return
-        self.list_widget.takeItem(row)
-        del self.blocked_folders[row]
-        self._list_label.setText(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
 
-    def _clear_all(self) -> None:
-        if not self.blocked_folders:
+        subfolders = [e for e in entries if os.path.isdir(os.path.join(self.current_path, e)) and not e.startswith(".")]
+
+        if not subfolders:
+            item = QListWidgetItem("该目录下没有子文件夹")
+            item.setFlags(Qt.ItemIsEnabled)
+            self.folder_list.addItem(item)
+            self.folder_list.blockSignals(False)
             return
-        reply = QMessageBox.question(self, "确认", "确定清空所有屏蔽项吗？", QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.blocked_folders.clear()
-            self.list_widget.clear()
-            self._list_label.setText("当前屏蔽列表（0 项）")
+
+        for name in subfolders:
+            item = QListWidgetItem(f"📁 {name}")
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            # 已屏蔽的文件夹默认勾选
+            if name in self.blocked_folders:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+            item.setData(Qt.UserRole, name)
+            self.folder_list.addItem(item)
+
+        self.folder_list.blockSignals(False)
+        self._update_count()
+
+    def _on_item_changed(self, item: QListWidgetItem) -> None:
+        """勾选状态变化时更新屏蔽列表"""
+        name = item.data(Qt.UserRole)
+        if not name:
+            return
+        if item.checkState() == Qt.Checked:
+            if name not in self.blocked_folders:
+                self.blocked_folders.append(name)
+        else:
+            if name in self.blocked_folders:
+                self.blocked_folders.remove(name)
+        self._update_count()
+
+    def _update_count(self) -> None:
+        """更新已屏蔽数量显示"""
+        self._count_label.setText(f"已屏蔽 {len(self.blocked_folders)} 个文件夹")
+
+    def _select_all(self) -> None:
+        """全选"""
+        self.folder_list.blockSignals(True)
+        for i in range(self.folder_list.count()):
+            item = self.folder_list.item(i)
+            name = item.data(Qt.UserRole)
+            if name:
+                item.setCheckState(Qt.Checked)
+                if name not in self.blocked_folders:
+                    self.blocked_folders.append(name)
+        self.folder_list.blockSignals(False)
+        self._update_count()
+
+    def _unselect_all(self) -> None:
+        """取消全选"""
+        self.folder_list.blockSignals(True)
+        for i in range(self.folder_list.count()):
+            item = self.folder_list.item(i)
+            name = item.data(Qt.UserRole)
+            if name:
+                item.setCheckState(Qt.Unchecked)
+                if name in self.blocked_folders:
+                    self.blocked_folders.remove(name)
+        self.folder_list.blockSignals(False)
+        self._update_count()
 
     def get_blocked_folders(self) -> list:
         return self.blocked_folders
@@ -1044,7 +1086,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", f"无法保存文件:\n{e}")
 
     def _on_manage_block_list(self) -> None:
-        dialog = BlockListDialog(list(self.blocked_folders), self)
+        dialog = BlockListDialog(self.current_source_path, list(self.blocked_folders), self)
         if dialog.exec_() == QDialog.Accepted:
             old_blocked = self.blocked_folders.copy()
             self.blocked_folders = set(dialog.get_blocked_folders())

@@ -29,6 +29,8 @@ test_*.py
 # --- IDE / 编辑器 ---
 .vscode/
 .idea/
+.trae/
+ai-coding-guidelines
 *.swp
 *.swo
 *~
