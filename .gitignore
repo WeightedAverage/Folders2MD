@@ -1,0 +1,43 @@
+# ============================================================
+# Folders2MD - Git 忽略规则
+# ============================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# --- PyInstaller 打包产物（exe 不上传，需自行打包）---
+build/
+dist/
+*.spec
+
+# --- 运行时日志 ---
+logs/
+dist/logs/
+
+# --- 用户配置文件（含个人设置）---
+folders2md_config.json
+
+# --- 测试脚本 ---
+test_*.py
+
+# --- IDE / 编辑器 ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- 操作系统 ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- 临时文件 ---
+*.tmp
+*.bak
