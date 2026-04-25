@@ -649,48 +649,78 @@ class FileTreePanel(QTreeWidget):
 # ============================================================
 
 class BlockListDialog(QDialog):
-    """文件夹屏蔽列表管理对话框"""
+    """文件夹屏蔽列表管理对话框，支持手动输入路径"""
 
     def __init__(self, blocked_folders: list, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("文件夹屏蔽列表")
-        self.setMinimumSize(400, 350)
+        self.setWindowTitle("屏蔽列表管理")
+        self.setMinimumSize(480, 420)
         self.blocked_folders = list(blocked_folders)
         self._setup_ui()
         self._apply_styles()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        hint = QLabel("以下文件夹将在生成目录树时被跳过（不深入扫描）")
+        # 标题
+        title = QLabel("🚫 屏蔽文件夹管理")
+        title.setStyleSheet("color: #e0e0e0; font-size: 12pt; font-weight: bold; padding: 0;")
+        layout.addWidget(title)
+
+        # 说明
+        hint = QLabel("输入要屏蔽的文件夹路径或名称，扫描时将跳过这些目录")
         hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888; font-size: 9pt; padding: 0;")
         layout.addWidget(hint)
 
-        self.list_widget = QListWidget()
-        self.list_widget.addItems(self.blocked_folders)
-        layout.addWidget(self.list_widget)
-
+        # 输入区域：路径输入 + 浏览按钮 + 添加按钮
         input_layout = QHBoxLayout()
         self.input_edit = QLineEdit()
-        self.input_edit.setPlaceholderText("输入文件夹名称，如: node_modules")
+        self.input_edit.setPlaceholderText("输入路径，如: D:\\project\\node_modules 或 node_modules")
+        self.input_edit.returnPressed.connect(self._add_item)
+        self.btn_browse = QPushButton("📁 浏览")
+        self.btn_browse.setCursor(Qt.PointingHandCursor)
+        self.btn_browse.clicked.connect(self._browse_folder)
         self.btn_add = QPushButton("➕ 添加")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
         self.btn_add.clicked.connect(self._add_item)
-        input_layout.addWidget(self.input_edit)
+        input_layout.addWidget(self.input_edit, 1)
+        input_layout.addWidget(self.btn_browse)
         input_layout.addWidget(self.btn_add)
         layout.addLayout(input_layout)
 
+        # 列表标签
+        list_label = QLabel(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
+        list_label.setStyleSheet("color: #a0a0a0; font-size: 9pt; padding: 0;")
+        self._list_label = list_label
+        layout.addWidget(list_label)
+
+        # 列表
+        self.list_widget = QListWidget()
+        self.list_widget.addItems(self.blocked_folders)
+        self.list_widget.doubleClicked.connect(self._remove_selected)
+        layout.addWidget(self.list_widget)
+
+        # 操作按钮
         btn_layout = QHBoxLayout()
         self.btn_remove = QPushButton("🗑️ 移除选中")
+        self.btn_remove.setCursor(Qt.PointingHandCursor)
         self.btn_remove.clicked.connect(self._remove_selected)
-        self.btn_clear = QPushButton("🧹 清空")
+        self.btn_clear = QPushButton("🧹 清空全部")
+        self.btn_clear.setCursor(Qt.PointingHandCursor)
         self.btn_clear.clicked.connect(self._clear_all)
-        self.btn_ok = QPushButton("✅ 确定")
-        self.btn_ok.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_remove)
         btn_layout.addWidget(self.btn_clear)
         btn_layout.addStretch()
+        self.btn_ok = QPushButton("✅ 确定")
+        self.btn_ok.setCursor(Qt.PointingHandCursor)
+        self.btn_ok.clicked.connect(self.accept)
+        self.btn_ok.setStyleSheet(
+            "QPushButton { background-color: #0078d4; border: 1px solid #0078d4; }"
+            "QPushButton:hover { background-color: #1a8ae8; border: 1px solid #1a8ae8; }"
+        )
         btn_layout.addWidget(self.btn_ok)
         layout.addLayout(btn_layout)
 
@@ -698,32 +728,42 @@ class BlockListDialog(QDialog):
         self.setStyleSheet("""
             QDialog { background-color: #2b2b2b; }
             QWidget { background-color: #2b2b2b; color: #dcdcdc; font-family: "Microsoft YaHei", sans-serif; }
-            QLabel { color: #a0a0a0; font-size: 10pt; }
             QListWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 6px; font-size: 10pt; }
+            QListWidget::item { padding: 4px 6px; border-radius: 3px; }
             QListWidget::item:selected { background-color: #264f78; }
-            QLineEdit { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 6px 10px; font-size: 10pt; }
-            QPushButton { background-color: #3c3c3c; color: #e0e0e0; border: 1px solid #555; border-radius: 6px; padding: 6px 14px; font-size: 10pt; }
+            QListWidget::item:hover { background-color: #2a3f5c; }
+            QLineEdit { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font-size: 10pt; }
+            QLineEdit:focus { border: 1px solid #0078d4; }
+            QPushButton { background-color: #3c3c3c; color: #e0e0e0; border: 1px solid #555; border-radius: 6px; padding: 8px 16px; font-size: 10pt; }
             QPushButton:hover { background-color: #505050; border: 1px solid #666; }
         """)
+
+    def _browse_folder(self) -> None:
+        """浏览选择文件夹路径"""
+        folder = QFileDialog.getExistingDirectory(self, "选择要屏蔽的文件夹")
+        if folder:
+            self.input_edit.setText(folder)
 
     def _add_item(self) -> None:
         text = self.input_edit.text().strip()
         if not text:
             return
         if text in self.blocked_folders:
-            QMessageBox.information(self, "提示", "该文件夹已在屏蔽列表中。")
+            QMessageBox.information(self, "提示", "该路径已在屏蔽列表中。")
             return
         self.blocked_folders.append(text)
         self.list_widget.addItem(text)
         self.input_edit.clear()
+        self._list_label.setText(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
 
     def _remove_selected(self) -> None:
         row = self.list_widget.currentRow()
         if row < 0:
-            QMessageBox.information(self, "提示", "请先选择要移除的项。")
+            QMessageBox.information(self, "提示", "请先选择要移除的项。\n也可双击列表项快速移除。")
             return
         self.list_widget.takeItem(row)
         del self.blocked_folders[row]
+        self._list_label.setText(f"当前屏蔽列表（{len(self.blocked_folders)} 项）")
 
     def _clear_all(self) -> None:
         if not self.blocked_folders:
@@ -732,6 +772,7 @@ class BlockListDialog(QDialog):
         if reply == QMessageBox.Yes:
             self.blocked_folders.clear()
             self.list_widget.clear()
+            self._list_label.setText("当前屏蔽列表（0 项）")
 
     def get_blocked_folders(self) -> list:
         return self.blocked_folders
@@ -786,7 +827,7 @@ class MainWindow(QMainWindow):
         self.path_display = QLineEdit()
         self.path_display.setReadOnly(True)
         self.path_display.setPlaceholderText("请拖入文件夹或点击选择...")
-        self.btn_open = QPushButton("选择文件夹")
+        self.btn_open = QPushButton("📂 选择文件夹")
         self.btn_open.setCursor(Qt.PointingHandCursor)
         self.btn_open.clicked.connect(self._on_open_folder)
         path_layout.addWidget(path_label)
@@ -794,17 +835,9 @@ class MainWindow(QMainWindow):
         path_layout.addWidget(self.btn_open)
         main_layout.addLayout(path_layout)
 
-        # 按钮区域
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
-
-        self.btn_copy = QPushButton("📋 复制")
-        self.btn_copy.setCursor(Qt.PointingHandCursor)
-        self.btn_copy.clicked.connect(self._on_copy)
-
-        self.btn_save = QPushButton("💾 保存")
-        self.btn_save.setCursor(Qt.PointingHandCursor)
-        self.btn_save.clicked.connect(self._on_save)
+        # 左侧工具栏：屏蔽列表、刷新、日志
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setSpacing(10)
 
         self.btn_block = QPushButton("🚫 屏蔽列表")
         self.btn_block.setCursor(Qt.PointingHandCursor)
@@ -815,18 +848,15 @@ class MainWindow(QMainWindow):
         self.btn_refresh.clicked.connect(self._on_refresh)
         self.btn_refresh.setEnabled(False)
 
-        # 日志开关按钮
         self.btn_log_toggle = QPushButton("📝 日志: 关" if not app_logger.is_enabled() else "📝 日志: 开")
         self.btn_log_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_log_toggle.clicked.connect(self._on_toggle_logging)
 
-        button_layout.addWidget(self.btn_copy)
-        button_layout.addWidget(self.btn_save)
-        button_layout.addWidget(self.btn_block)
-        button_layout.addWidget(self.btn_refresh)
-        button_layout.addWidget(self.btn_log_toggle)
-        button_layout.addStretch()
-        main_layout.addLayout(button_layout)
+        toolbar_layout.addWidget(self.btn_block)
+        toolbar_layout.addWidget(self.btn_refresh)
+        toolbar_layout.addWidget(self.btn_log_toggle)
+        toolbar_layout.addStretch()
+        main_layout.addLayout(toolbar_layout)
 
         # 内容区域：左侧文件树 + 右侧 Markdown 预览
         content_layout = QHBoxLayout()
@@ -842,11 +872,35 @@ class MainWindow(QMainWindow):
         tree_container.addWidget(self.file_tree)
         content_layout.addLayout(tree_container, 1)
 
-        # 右侧 Markdown 预览
+        # 右侧 Markdown 预览 + 操作按钮
         preview_container = QVBoxLayout()
+
+        # 右侧顶部：标题 + 复制/保存按钮
+        preview_header = QHBoxLayout()
         preview_label = QLabel("📝 Markdown 预览")
         preview_label.setStyleSheet("color: #a0a0a0; font-size: 10pt; padding: 2px;")
-        preview_container.addWidget(preview_label)
+        preview_header.addWidget(preview_label)
+        preview_header.addStretch()
+
+        self.btn_copy = QPushButton("📋 复制")
+        self.btn_copy.setCursor(Qt.PointingHandCursor)
+        self.btn_copy.clicked.connect(self._on_copy)
+        self.btn_copy.setStyleSheet(
+            "QPushButton { background-color: #2d5a88; border: 1px solid #2d5a88; }"
+            "QPushButton:hover { background-color: #3a7ab8; border: 1px solid #3a7ab8; }"
+        )
+
+        self.btn_save = QPushButton("💾 保存")
+        self.btn_save.setCursor(Qt.PointingHandCursor)
+        self.btn_save.clicked.connect(self._on_save)
+        self.btn_save.setStyleSheet(
+            "QPushButton { background-color: #0078d4; border: 1px solid #0078d4; }"
+            "QPushButton:hover { background-color: #1a8ae8; border: 1px solid #1a8ae8; }"
+        )
+
+        preview_header.addWidget(self.btn_copy)
+        preview_header.addWidget(self.btn_save)
+        preview_container.addLayout(preview_header)
 
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
