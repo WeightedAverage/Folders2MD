@@ -650,17 +650,17 @@ class FileTreePanel(QTreeWidget):
 # ============================================================
 
 class BlockListDialog(QDialog):
-    """屏蔽列表管理对话框，自动扫描当前目录子文件夹，点击即可屏蔽"""
+    """屏蔽列表管理对话框，递归展示所有层级子文件夹，点击勾选屏蔽"""
 
     def __init__(self, current_path: str, blocked_folders: list, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("屏蔽文件夹")
-        self.setMinimumSize(460, 500)
+        self.setMinimumSize(520, 600)
         self.current_path = current_path
-        self.blocked_folders = list(blocked_folders)
+        self.blocked_folders = set(blocked_folders)
         self._setup_ui()
         self._apply_styles()
-        self._load_subfolders()
+        self._load_tree()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -679,14 +679,16 @@ class BlockListDialog(QDialog):
         layout.addWidget(path_label)
 
         # 说明
-        hint = QLabel("勾选要屏蔽的子文件夹，扫描时将跳过这些目录")
+        hint = QLabel("勾选要屏蔽的文件夹，扫描时将跳过这些目录及其所有子目录")
         hint.setStyleSheet("color: #a0a0a0; font-size: 9pt; padding: 0;")
         layout.addWidget(hint)
 
-        # 子文件夹列表（带勾选框）
-        self.folder_list = QListWidget()
-        self.folder_list.itemChanged.connect(self._on_item_changed)
-        layout.addWidget(self.folder_list)
+        # 树形控件（带勾选框）
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setColumnCount(1)
+        self.tree.itemChanged.connect(self._on_item_changed)
+        layout.addWidget(self.tree)
 
         # 已屏蔽数量提示
         self._count_label = QLabel(f"已屏蔽 {len(self.blocked_folders)} 个文件夹")
@@ -695,12 +697,20 @@ class BlockListDialog(QDialog):
 
         # 底部按钮
         btn_layout = QHBoxLayout()
+        self.btn_expand = QPushButton("📂 展开全部")
+        self.btn_expand.setCursor(Qt.PointingHandCursor)
+        self.btn_expand.clicked.connect(lambda: self.tree.expandAll())
+        self.btn_collapse = QPushButton("📁 收起全部")
+        self.btn_collapse.setCursor(Qt.PointingHandCursor)
+        self.btn_collapse.clicked.connect(lambda: self.tree.collapseAll())
         self.btn_unselect_all = QPushButton("取消全选")
         self.btn_unselect_all.setCursor(Qt.PointingHandCursor)
         self.btn_unselect_all.clicked.connect(self._unselect_all)
         self.btn_select_all = QPushButton("全选")
         self.btn_select_all.setCursor(Qt.PointingHandCursor)
         self.btn_select_all.clicked.connect(self._select_all)
+        btn_layout.addWidget(self.btn_expand)
+        btn_layout.addWidget(self.btn_collapse)
         btn_layout.addWidget(self.btn_unselect_all)
         btn_layout.addWidget(self.btn_select_all)
         btn_layout.addStretch()
@@ -718,73 +728,139 @@ class BlockListDialog(QDialog):
         self.setStyleSheet("""
             QDialog { background-color: #2b2b2b; }
             QWidget { background-color: #2b2b2b; color: #dcdcdc; font-family: "Microsoft YaHei", sans-serif; }
-            QListWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 6px; font-size: 10pt; }
-            QListWidget::item { padding: 6px 8px; border-radius: 3px; }
-            QListWidget::item:selected { background-color: #264f78; }
-            QListWidget::item:hover { background-color: #2a3f5c; }
-            QListWidget::indicator { width: 16px; height: 16px; }
-            QListWidget::indicator:unchecked { background-color: #3c3c3c; border: 1px solid #666; border-radius: 3px; }
-            QListWidget::indicator:checked { background-color: #0078d4; border: 1px solid #0078d4; border-radius: 3px; }
+            QTreeWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #444; border-radius: 6px; padding: 6px; font-size: 10pt; outline: none; }
+            QTreeWidget::item { padding: 4px 6px; border-radius: 3px; }
+            QTreeWidget::item:selected { background-color: #264f78; }
+            QTreeWidget::item:hover { background-color: #2a3f5c; }
+            QTreeWidget::indicator { width: 16px; height: 16px; }
+            QTreeWidget::indicator:unchecked { background-color: #3c3c3c; border: 1px solid #666; border-radius: 3px; }
+            QTreeWidget::indicator:checked { background-color: #0078d4; border: 1px solid #0078d4; border-radius: 3px; }
+            QTreeWidget::indicator:indeterminate { background-color: #5a7a9a; border: 1px solid #5a7a9a; border-radius: 3px; }
             QPushButton { background-color: #3c3c3c; color: #e0e0e0; border: 1px solid #555; border-radius: 6px; padding: 8px 16px; font-size: 10pt; }
             QPushButton:hover { background-color: #505050; border: 1px solid #666; }
         """)
 
-    def _load_subfolders(self) -> None:
-        """扫描当前目录下的子文件夹并填充列表"""
-        self.folder_list.blockSignals(True)
-        self.folder_list.clear()
+    def _load_tree(self) -> None:
+        """递归扫描并加载树形结构"""
+        self.tree.blockSignals(True)
+        self.tree.clear()
 
         if not self.current_path or not os.path.isdir(self.current_path):
-            item = QListWidgetItem("⚠ 未选择文件夹，请先选择一个文件夹")
-            item.setFlags(Qt.ItemIsEnabled)
-            self.folder_list.addItem(item)
-            self.folder_list.blockSignals(False)
+            root = QTreeWidgetItem(self.tree)
+            root.setText(0, "⚠ 未选择文件夹")
+            root.setFlags(Qt.ItemIsEnabled)
+            self.tree.blockSignals(False)
             return
 
+        root_name = os.path.basename(os.path.normpath(self.current_path))
+        root = QTreeWidgetItem(self.tree)
+        root.setText(0, f"📁 {root_name}")
+        root.setFlags(root.flags() | Qt.ItemIsUserCheckable)
+        root.setCheckState(0, Qt.Unchecked)
+        root.setData(0, Qt.UserRole, "")
+
+        self._add_subfolders(root, self.current_path)
+        self.tree.expandToDepth(1)
+        self.tree.blockSignals(False)
+        self._update_parent_state(root)
+        self._update_count()
+
+    def _add_subfolders(self, parent_item: QTreeWidgetItem, path: str) -> None:
+        """递归添加子文件夹"""
         try:
-            entries = sorted(os.listdir(self.current_path))
+            entries = sorted(os.listdir(path))
         except (PermissionError, OSError):
-            item = QListWidgetItem("⚠ 无法读取该目录")
-            item.setFlags(Qt.ItemIsEnabled)
-            self.folder_list.addItem(item)
-            self.folder_list.blockSignals(False)
             return
 
-        subfolders = [e for e in entries if os.path.isdir(os.path.join(self.current_path, e)) and not e.startswith(".")]
+        entries = [e for e in entries if os.path.isdir(os.path.join(path, e)) and not e.startswith(".")]
 
-        if not subfolders:
-            item = QListWidgetItem("该目录下没有子文件夹")
-            item.setFlags(Qt.ItemIsEnabled)
-            self.folder_list.addItem(item)
-            self.folder_list.blockSignals(False)
-            return
+        for name in entries:
+            full_path = os.path.join(path, name)
+            child = QTreeWidgetItem(parent_item)
+            child.setText(0, f"📁 {name}")
+            child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
 
-        for name in subfolders:
-            item = QListWidgetItem(f"📁 {name}")
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            # 已屏蔽的文件夹默认勾选
+            # 检查是否已屏蔽
             if name in self.blocked_folders:
-                item.setCheckState(Qt.Checked)
+                child.setCheckState(0, Qt.Checked)
             else:
-                item.setCheckState(Qt.Unchecked)
-            item.setData(Qt.UserRole, name)
-            self.folder_list.addItem(item)
+                child.setCheckState(0, Qt.Unchecked)
 
-        self.folder_list.blockSignals(False)
-        self._update_count()
+            child.setData(0, Qt.UserRole, name)
 
-    def _on_item_changed(self, item: QListWidgetItem) -> None:
-        """勾选状态变化时更新屏蔽列表"""
-        name = item.data(Qt.UserRole)
-        if not name:
+            # 递归添加子文件夹
+            self._add_subfolders(child, full_path)
+
+    def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        """勾选状态变化时同步子项和父项"""
+        if column != 0:
             return
-        if item.checkState() == Qt.Checked:
-            if name not in self.blocked_folders:
-                self.blocked_folders.append(name)
-        else:
-            if name in self.blocked_folders:
-                self.blocked_folders.remove(name)
+
+        self.tree.blockSignals(True)
+
+        state = item.checkState(0)
+        name = item.data(0, Qt.UserRole)
+
+        # 同步子项
+        self._sync_children(item, state)
+
+        # 更新屏蔽列表
+        self._update_blocked_from_tree()
+
+        # 同步父项
+        self._update_parent_state_recursive(item)
+
+        self.tree.blockSignals(False)
         self._update_count()
+
+    def _sync_children(self, item: QTreeWidgetItem, state: int) -> None:
+        """同步所有子项的勾选状态"""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            self._sync_children(child, state)
+
+    def _update_parent_state_recursive(self, item: QTreeWidgetItem) -> None:
+        """递归更新父项状态"""
+        parent = item.parent()
+        if not parent:
+            return
+        self._update_parent_state(parent)
+        self._update_parent_state_recursive(parent)
+
+    def _update_parent_state(self, parent: QTreeWidgetItem) -> None:
+        """根据子项状态更新父项"""
+        checked_count = 0
+        partial_count = 0
+        for i in range(parent.childCount()):
+            state = parent.child(i).checkState(0)
+            if state == Qt.Checked:
+                checked_count += 1
+            elif state == Qt.PartiallyChecked:
+                partial_count += 1
+
+        if checked_count == parent.childCount():
+            parent.setCheckState(0, Qt.Checked)
+        elif checked_count == 0 and partial_count == 0:
+            parent.setCheckState(0, Qt.Unchecked)
+        else:
+            parent.setCheckState(0, Qt.PartiallyChecked)
+
+    def _update_blocked_from_tree(self) -> None:
+        """从树形控件状态更新屏蔽列表"""
+        self.blocked_folders.clear()
+        root = self.tree.topLevelItem(0)
+        if root:
+            self._collect_checked(root)
+
+    def _collect_checked(self, item: QTreeWidgetItem) -> None:
+        """递归收集勾选的文件夹"""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            name = child.data(0, Qt.UserRole)
+            if name and child.checkState(0) == Qt.Checked:
+                self.blocked_folders.add(name)
+            self._collect_checked(child)
 
     def _update_count(self) -> None:
         """更新已屏蔽数量显示"""
@@ -792,32 +868,28 @@ class BlockListDialog(QDialog):
 
     def _select_all(self) -> None:
         """全选"""
-        self.folder_list.blockSignals(True)
-        for i in range(self.folder_list.count()):
-            item = self.folder_list.item(i)
-            name = item.data(Qt.UserRole)
-            if name:
-                item.setCheckState(Qt.Checked)
-                if name not in self.blocked_folders:
-                    self.blocked_folders.append(name)
-        self.folder_list.blockSignals(False)
+        self.tree.blockSignals(True)
+        root = self.tree.topLevelItem(0)
+        if root:
+            root.setCheckState(0, Qt.Checked)
+            self._sync_children(root, Qt.Checked)
+        self._update_blocked_from_tree()
+        self.tree.blockSignals(False)
         self._update_count()
 
     def _unselect_all(self) -> None:
         """取消全选"""
-        self.folder_list.blockSignals(True)
-        for i in range(self.folder_list.count()):
-            item = self.folder_list.item(i)
-            name = item.data(Qt.UserRole)
-            if name:
-                item.setCheckState(Qt.Unchecked)
-                if name in self.blocked_folders:
-                    self.blocked_folders.remove(name)
-        self.folder_list.blockSignals(False)
+        self.tree.blockSignals(True)
+        root = self.tree.topLevelItem(0)
+        if root:
+            root.setCheckState(0, Qt.Unchecked)
+            self._sync_children(root, Qt.Unchecked)
+        self._update_blocked_from_tree()
+        self.tree.blockSignals(False)
         self._update_count()
 
     def get_blocked_folders(self) -> list:
-        return self.blocked_folders
+        return list(self.blocked_folders)
 
 
 # ============================================================
