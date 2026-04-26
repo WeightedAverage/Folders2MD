@@ -1227,15 +1227,23 @@ class MainWindow(QMainWindow):
             self._process(self.current_source_path)
 
     def _set_window_icon(self) -> None:
-        """设置窗口图标"""
-        icon_paths = [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "images", "logo.png"),
-            os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__)), "images", "logo.png"),
-        ]
-        for path in icon_paths:
-            if os.path.exists(path):
-                self.setWindowIcon(QIcon(path))
-                break
+        """设置窗口图标，支持开发环境和PyInstaller打包环境"""
+        icon_path = self._get_resource_path("images", "logo", "logo.png")
+        if icon_path and os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+    def _get_resource_path(self, *relative_paths: str) -> str:
+        """
+        获取资源文件的绝对路径
+        支持开发环境和PyInstaller打包后的环境
+        """
+        if getattr(sys, "frozen", False):
+            # PyInstaller打包后的环境：资源在_MEIPASS临时目录
+            base_path = sys._MEIPASS
+        else:
+            # 开发环境：资源在脚本所在目录
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_path, *relative_paths)
 
     def _on_copy_option_changed(self, state: int) -> None:
         """复制选项变化时更新预览"""

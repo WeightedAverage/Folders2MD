@@ -42,7 +42,7 @@ python folders2md.py
 pip install pyinstaller
 ```
 
-### 打包命令
+### 🔥🔥🔥🔥🔥🔥🔥🔥打包命令🔥🔥🔥🔥🔥🔥🔥🔥
 
 在项目根目录下执行：
 
