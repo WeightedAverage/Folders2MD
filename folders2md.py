@@ -20,9 +20,10 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -415,6 +416,21 @@ class ScanWorker(QThread):
         lines.append("```")
         lines.append("")
         return "\n".join(lines)
+
+    def _build_block_note(self, root_path: str, blocked_names: set) -> str:
+        """构建屏蔽信息备注（使用相对路径）"""
+        if not blocked_names:
+            return ""
+
+        root_name = os.path.basename(os.path.normpath(root_path))
+        # 相对路径格式: root_name/blocked_name
+        relative_paths = sorted([f"{root_name}/{name}" for name in blocked_names])
+
+        if len(relative_paths) == 1:
+            return f"\n> 屏蔽了{relative_paths[0]}文件夹\n"
+        else:
+            paths_str = "、".join(relative_paths)
+            return f"\n> 屏蔽了{paths_str}等文件夹\n"
 
 
 # ============================================================
@@ -903,6 +919,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 700)
         self.resize(900, 700)
 
+        # 设置窗口图标
+        self._set_window_icon()
+
         self.setAcceptDrops(True)
 
         self.current_markdown: str = ""
@@ -1020,6 +1039,17 @@ class MainWindow(QMainWindow):
         self.text_edit.setReadOnly(True)
         self.text_edit.setPlaceholderText("生成的 Markdown 目录树将显示在这里...")
         preview_container.addWidget(self.text_edit)
+
+        # 复制/保存选项：一并复制屏蔽信息
+        option_layout = QHBoxLayout()
+        option_layout.addStretch()
+        self.chk_copy_block_info = QCheckBox("一并复制屏蔽信息")
+        self.chk_copy_block_info.setChecked(False)
+        self.chk_copy_block_info.setStyleSheet("color: #a0a0a0; font-size: 9pt;")
+        self.chk_copy_block_info.stateChanged.connect(self._on_copy_option_changed)
+        option_layout.addWidget(self.chk_copy_block_info)
+        preview_container.addLayout(option_layout)
+
         content_layout.addLayout(preview_container, 1)
 
         main_layout.addLayout(content_layout, 1)
@@ -1102,13 +1132,24 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("没有可复制的内容")
             QMessageBox.information(self, "提示", "请先生成目录树。")
             return
+        # 根据勾选状态决定是否包含屏蔽信息
+        if self.chk_copy_block_info.isChecked() and self.blocked_folders:
+            block_note = self.scan_worker._build_block_note(
+                self.current_source_path, self.blocked_folders
+            ) if self.scan_worker else ""
+            content = self.current_markdown + block_note
+        else:
+            content = self.current_markdown
         clipboard = QApplication.clipboard()
-        clipboard.setText(self.current_markdown)
+        clipboard.setText(content)
         self.status_bar.showMessage("已复制到剪贴板")
         app_logger.log_operation(
             operation="COPY_CLIPBOARD",
             result="SUCCESS",
-            details={"content_length": len(self.current_markdown)},
+            details={
+                "content_length": len(content),
+                "with_block_info": self.chk_copy_block_info.isChecked(),
+            },
         )
 
     def _on_save(self) -> None:
@@ -1184,6 +1225,31 @@ class MainWindow(QMainWindow):
                 target_path=self.current_source_path,
             )
             self._process(self.current_source_path)
+
+    def _set_window_icon(self) -> None:
+        """设置窗口图标"""
+        icon_paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "images", "logo.png"),
+            os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__)), "images", "logo.png"),
+        ]
+        for path in icon_paths:
+            if os.path.exists(path):
+                self.setWindowIcon(QIcon(path))
+                break
+
+    def _on_copy_option_changed(self, state: int) -> None:
+        """复制选项变化时更新预览"""
+        if not self.current_markdown:
+            return
+        # 更新预览显示
+        if self.chk_copy_block_info.isChecked() and self.blocked_folders:
+            block_note = self.scan_worker._build_block_note(
+                self.current_source_path, self.blocked_folders
+            ) if self.scan_worker else ""
+            preview = self.current_markdown + block_note
+        else:
+            preview = self.current_markdown
+        self.text_edit.setPlainText(preview)
 
     def _on_toggle_logging(self) -> None:
         """切换日志开关"""
