@@ -19,13 +19,14 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
+from PyQt5.QtCore import Qt, QThread, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPainter, QColor, QFont, QPen
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -383,8 +384,6 @@ class ScanWorker(QThread):
             )
             return
 
-        entries = [e for e in entries if not e.startswith(".")]
-
         # 记录扫描进度（用于诊断深层目录卡死）
         app_logger.log_scan_progress(path, level, len(entries))
 
@@ -530,8 +529,6 @@ class FileTreePanel(QTreeWidget):
             entries = sorted(os.listdir(path))
         except (PermissionError, OSError):
             return
-
-        entries = [e for e in entries if not e.startswith(".")]
 
         for entry in entries:
             if self._node_count >= self.MAX_VISIBLE_NODES:
@@ -788,7 +785,7 @@ class BlockListDialog(QDialog):
         except (PermissionError, OSError):
             return
 
-        entries = [e for e in entries if os.path.isdir(os.path.join(path, e)) and not e.startswith(".")]
+        entries = [e for e in entries if os.path.isdir(os.path.join(path, e))]
 
         for name in entries:
             full_path = os.path.join(path, name)
@@ -909,6 +906,98 @@ class BlockListDialog(QDialog):
 
 
 # ============================================================
+# 拖拽覆盖层组件
+# ============================================================
+
+class DragOverlayWidget(QWidget):
+    """半透明拖拽覆盖层，带动画效果"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._visible = False
+        self._icon_size = 80
+        self.hide()
+
+    def show_overlay(self):
+        """显示覆盖层"""
+        if self._visible:
+            return
+        self._visible = True
+        if self.parent():
+            self.setGeometry(0, 0, self.parent().width(), self.parent().height())
+        self.show()
+        self.raise_()
+        self.update()
+
+    def hide_overlay(self):
+        """隐藏覆盖层"""
+        if not self._visible:
+            return
+        self._visible = False
+        self.hide()
+
+    def paintEvent(self, event):
+        """自定义绘制：半透明背景 + 图标 + 文字"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        # 半透明背景
+        painter.fillRect(self.rect(), QColor(30, 120, 220, 180))
+
+        # 虚线边框
+        pen = QPen(QColor(255, 255, 255, 200), 3, Qt.DashLine)
+        painter.setPen(pen)
+        margin = 20
+        painter.drawRoundedRect(
+            margin, margin,
+            self.width() - 2 * margin,
+            self.height() - 2 * margin,
+            16, 16
+        )
+
+        # 中心绘制
+        center_x = self.width() // 2
+        center_y = self.height() // 2
+
+        # 绘制文件夹图标（用文字代替，更流畅）
+        painter.setPen(QColor(255, 255, 255))
+        font = QFont("Segoe UI Emoji", self._icon_size)
+        painter.setFont(font)
+        icon_rect = painter.fontMetrics().boundingRect("📁")
+        painter.drawText(
+            center_x - icon_rect.width() // 2,
+            center_y - 40,
+            icon_rect.width(),
+            icon_rect.height(),
+            Qt.AlignCenter,
+            "📁"
+        )
+
+        # 绘制提示文字
+        font.setPointSize(14)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 240))
+        painter.drawText(
+            center_x - 150,
+            center_y + 60,
+            300, 40,
+            Qt.AlignCenter,
+            "松开以生成目录结构"
+        )
+
+        painter.end()
+
+    def resizeEvent(self, event):
+        """父窗口大小改变时同步大小"""
+        if self.parent():
+            self.setGeometry(self.parent().rect())
+        super().resizeEvent(event)
+
+
+# ============================================================
 # 主窗口
 # ============================================================
 
@@ -939,6 +1028,10 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._apply_styles()
+
+        # 初始化拖拽覆盖层
+        self._drag_overlay = DragOverlayWidget(self.centralWidget())
+        self._drag_overlay.hide()
 
         app_logger.log_operation(
             operation="APP_START",
@@ -1080,14 +1173,26 @@ class MainWindow(QMainWindow):
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
+            if hasattr(self, '_hide_timer'):
+                self._hide_timer.stop()
+            self._drag_overlay.show_overlay()
             self.status_bar.showMessage("松开鼠标以生成目录")
         else:
             event.ignore()
 
     def dragLeaveEvent(self, event) -> None:
+        # 延迟隐藏，避免拖动过程中频繁触发
+        if not hasattr(self, '_hide_timer'):
+            self._hide_timer = QTimer(self)
+            self._hide_timer.setSingleShot(True)
+            self._hide_timer.timeout.connect(self._drag_overlay.hide_overlay)
+        self._hide_timer.start(100)
         self.status_bar.showMessage("就绪")
 
     def dropEvent(self, event: QDropEvent) -> None:
+        if hasattr(self, '_hide_timer'):
+            self._hide_timer.stop()
+        self._drag_overlay.hide_overlay()
         urls = event.mimeData().urls()
         if not urls:
             return
@@ -1286,6 +1391,16 @@ class MainWindow(QMainWindow):
             details={"source_path": self.current_source_path or ""},
         )
         event.accept()
+
+    # ============================================================
+    # 窗口事件
+    # ============================================================
+
+    def resizeEvent(self, event):
+        """窗口大小变化时同步覆盖层大小"""
+        super().resizeEvent(event)
+        if hasattr(self, '_drag_overlay') and self._drag_overlay._visible:
+            self._drag_overlay.setGeometry(0, 0, self.width(), self.height())
 
     # ============================================================
     # 核心处理逻辑（使用后台线程）
