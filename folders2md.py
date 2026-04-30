@@ -1144,6 +1144,26 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(content_layout, 1)
 
+        # 底部作者信息
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(0, 4, 0, 0)
+        author_label = QLabel("作者: 加权平均数")
+        author_label.setStyleSheet("color: #666; font-size: 9pt;")
+        self.email_label = QLabel("📧 Findme@xiaoding.club")
+        self.email_label.setStyleSheet("color: #666; font-size: 9pt; text-decoration: underline;")
+        self.email_label.setCursor(Qt.PointingHandCursor)
+        self.email_label.mousePressEvent = lambda e: self._copy_email()
+        btn_copy_email = QPushButton("📋 复制邮箱")
+        btn_copy_email.setCursor(Qt.PointingHandCursor)
+        btn_copy_email.setStyleSheet("background-color: transparent; color: #666; border: none; font-size: 9pt; padding: 0;")
+        btn_copy_email.clicked.connect(self._copy_email)
+        footer_layout.addWidget(author_label)
+        footer_layout.addSpacing(12)
+        footer_layout.addWidget(self.email_label)
+        footer_layout.addWidget(btn_copy_email)
+        footer_layout.addStretch()
+        main_layout.addLayout(footer_layout)
+
         # 状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -1360,6 +1380,12 @@ class MainWindow(QMainWindow):
         else:
             preview = self.current_markdown
         self.text_edit.setPlainText(preview)
+
+    def _copy_email(self) -> None:
+        """复制邮箱到剪贴板"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText("Findme@xiaoding.club")
+        self.status_bar.showMessage("邮箱已复制到剪贴板")
 
     def _on_toggle_logging(self) -> None:
         """切换日志开关"""
