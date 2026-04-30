@@ -29,7 +29,9 @@ test_*.py
 .vscode/
 .idea/
 .trae/
+.claude/
 ai-coding-guidelines
+CLAUDE.md
 *.swp
 *.swo
 *~
