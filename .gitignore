@@ -19,6 +19,9 @@ dist/
 # --- 运行时日志 ---
 logs/
 
+# --- 设计文档 ---
+docx/
+
 # --- 用户配置文件 ---
 folders2md_config.json
 
