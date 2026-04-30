@@ -19,19 +19,16 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QThread, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QPainter, QColor, QFont, QPen
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPainter, QColor, QFont, QPen
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
